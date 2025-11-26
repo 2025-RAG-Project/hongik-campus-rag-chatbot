@@ -1,2 +1,2 @@
 .env
-chroma_db/
+build_vector_db/chroma_db_enhanced/
