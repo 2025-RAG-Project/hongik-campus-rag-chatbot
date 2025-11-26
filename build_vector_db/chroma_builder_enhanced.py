@@ -9,17 +9,17 @@ import re
 load_dotenv()
 
 CSV_PATH = "build_vector_db/data/df_academic_board_master.csv"
-CHROMA_DIR = "chroma_db_enhanced"
+CHROMA_DIR = "build_vector_db/chroma_db_enhanced" # 경로 명시
 COLLECTION_NAME = "hongik_data"
 
+# csv파일의 search_text 컬럼을 벡터화하여 chromadb에 저장
+# search_text에 대해서 주변 searching이 쉽도록 전처리 진행
 
-# ------------------------------
-# 텍스트 정제 함수
-# ------------------------------
+# === 텍스트 정제 함수 ===
 def clean_text(t: str):
     t = str(t)
 
-    # HTML 태그 제거 (혹시 모를 경우 대비)
+    # HTML 태그 제거 (대비용)
     t = re.sub(r"<[^>]+>", " ", t)
 
     # 개행/탭 제거
@@ -31,21 +31,18 @@ def clean_text(t: str):
     return t
 
 
-# ------------------------------
-#  날짜 정규화: yyyy-mm-dd 
-# ------------------------------
+
+#  === 날짜 정규화: yyyy-mm-dd ===
 def normalize_date(date_str: str):
     date_str = str(date_str)
     date_str = date_str.replace(".", "-")
     return date_str
 
 
-# ------------------------------
-# Chroma DB 구축
-# ------------------------------
+# === Chroma DB 구축 ===
 def build_chroma_db():
 
-    # 기존 DB 삭제
+    # 기존 DB가 있다면 삭제하고 진행
     if os.path.exists(CHROMA_DIR):
         shutil.rmtree(CHROMA_DIR)
 
@@ -61,15 +58,16 @@ def build_chroma_db():
         content = clean_text(row["search_text"])
         date = normalize_date(row["date"])
 
-        # 🔥 학부/카테고리 추출 가능하면 넣어주기 (없으면 빈 값)
+        # 학부/카테고리 추출 가능하면 넣어주기 (없으면 빈 값)
+        # TODO : 학과명 추가(학부)
         category = ""
         if "디자인" in title:
             category = "디자인예술경영학부"
         elif "대학원" in title:
             category = "대학원"
-        # (원하면 여기에 더 많은 rule 추가 가능)
+        # (룰 추가하기)
 
-        # 📌 최적의 벡터 텍스트 구성
+        # 최적의 벡터 텍스트 구성
         final_text = (
             f"제목: {title}\n"
             f"날짜: {date}\n"
@@ -98,7 +96,7 @@ def build_chroma_db():
         collection_name=COLLECTION_NAME
     )
 
-    print("🔥 Chroma Vector DB (Enhanced) 구축 완료!")
+    print("Chroma Vector DB (Enhanced) 구축 완료")
     print(f"총 벡터 수: {len(texts)}")
     print(f"저장 위치: {CHROMA_DIR}")
 
