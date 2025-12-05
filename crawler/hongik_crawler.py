@@ -388,9 +388,9 @@ class HongikCrawler:
 
 
 
-    def crawl_academic_board(
+    def crawl_univ_board(
         self,
-        save_path="academic_board.jsonl",
+        save_path="univ_board.jsonl",
         chunk_size=100,
         days_per_step=100,   # ★ 100일 단위
         total_days=730,      # ★ 전체는 2년치 정도
@@ -829,9 +829,9 @@ class HongikCrawler:
 
         # 2. 학사 공지사항
         # print("2. 학사 공지사항 크롤링...")
-        # academic_data = self.crawl_academic_board() or []   # ✅ None이면 빈 리스트로 대체
-        # all_results['academic_board'] = academic_data
-        # print(f"   {len(academic_data)}개 게시물 크롤링 완료")
+        # univ_data = self.crawl_univ_board() or []   # ✅ None이면 빈 리스트로 대체
+        # all_results['univ_board'] = univ_data
+        # print(f"   {len(univ_data)}개 게시물 크롤링 완료")
 
         # 3. 산업·데이터공학과 개설과목
         print("3. 개설과목 크롤링...")
@@ -846,8 +846,8 @@ class HongikCrawler:
         print(f"   {len(ie_board_data)}개 게시물 크롤링 완료")
 
         # 결과 저장
-        self.save_results(all_results, "hongik_crawled_data.json")
-        print("\n크롤링 완료! 결과가 'hongik_crawled_data.json'에 저장되었습니다.")
+        self.save_results(all_results, "courses_departNotice.json")
+        print("\n크롤링 완료! 결과가 'courses_departNotice.json'에 저장되었습니다.")
 
         return all_results
 
