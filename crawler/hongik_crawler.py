@@ -24,6 +24,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -495,42 +496,171 @@ class HongikCrawler:
 
     # ---------------- 3. 산업·데이터공학과 개설과목 ---------------- #
 
+    # def crawl_ie_courses(self):
+    #     url = "https://ie.hongik.ac.kr/ie/0301.do"
+
+    #     options = Options()
+    #     options.add_argument("--headless=new")
+    #     options.add_argument("--no-sandbox")
+    #     options.add_argument("--disable-dev-shm-usage")
+
+    #     driver = webdriver.Chrome(options=options)
+    #     driver.get(url)
+
+    #     try:
+    #         ul_grid = WebDriverWait(driver, 10).until(
+    #             EC.presence_of_element_located((By.CSS_SELECTOR, "ul.grid"))
+    #         )
+
+    #         boxes = ul_grid.find_elements(By.CSS_SELECTOR, "div.curriculum-title-box")
+
+    #         courses = []
+    #         for idx, box in enumerate(boxes, start=1):
+    #             # 🔹 HTML 태그 X, 텍스트만 사용
+    #             text = box.text.strip()
+
+    #             courses.append({
+    #                 "index": idx,
+    #                 "text": text
+    #             })
+
+    #         return courses
+
+    #     finally:
+    #         driver.quit()
+
     def crawl_ie_courses(self):
-        url = "https://ie.hongik.ac.kr/ie/0301.do"
+        """
+        여러 학과의 '교육과정/커리큘럼' 페이지를 순회하면서
+        각 학과별로 과목 정보를 수집하고, chunk_meta + item 구조로 반환.
+        """
+
+        # ✅ 여기서 학과 이름 + 커리큘럼 URL 관리
+        boards = [
+            {"name": "산업데이터공학과", "url": "https://ie.hongik.ac.kr/ie/0301.do"},
+            
+            # 공과대학_(신소재공학전공 링크 접근 불가, 기초과학과 글 없음)
+            {"name": "전기전자공학부", "url": "https://ee.hongik.ac.kr/ee/0401.do"},
+            {"name": "화학공학전공", "url": "https://chemeng.hongik.ac.kr/chemeng/sub/0502.do"},
+            {"name": "컴퓨터공학과", "url": "https://wwwce.hongik.ac.kr/wwwce/0301.do"},
+            # {"name": "기계시스템디자인공학과", "url": "https://me.hongik.ac.kr/me/0303.do"},
+            {"name": "건설환경공학과", "url": "https://civil.hongik.ac.kr/civil/0301.do"},
+
+            # 경영대학
+            {"name": "경영대학", "url": "https://bizadmin.hongik.ac.kr/bizadmin/0301.do"},
+
+            # 법과대학
+            {"name": "법과대학", "url": "https://law.hongik.ac.kr/law/0301.do"},
+
+            # 미술대학_(시각디자인/금속조형디자인 다른 형식의 홈페이지)
+            {"name": "동양화과", "url": "https://orip.hongik.ac.kr/orip/0301.do"},
+            {"name": "회화과", "url": "https://painting.hongik.ac.kr/painting/0301.do"},
+            {"name": "판화과", "url": "https://printmk.hongik.ac.kr/printmk/0301.do"},
+            {"name": "조소과", "url": "https://scu.hongik.ac.kr/scu/0301.do"},
+            {"name": "산업디자인전공", "url": "https://id.hongik.ac.kr/id/0301.do"},
+            {"name": "도예유리과", "url": "https://cer.hongik.ac.kr/cer/0301.do"},
+            {"name": "목조형가구학과", "url": "https://waf.hongik.ac.kr/waf/0301.do"},
+            {"name": "예술학과", "url": "https://art.hongik.ac.kr/art/0301.do"},
+
+            # 디자인예술경영학부
+            {"name": "디자인예술경영학부", "url": "https://iim.hongik.ac.kr/iim/0301.do"},
+
+            # 캠퍼스자율전공(서울)
+            # {"name": "캠퍼스자율전공", "url": "https://fm.hongik.ac.kr/fm/0401.do"},
+
+            # 바이오헬스융합학부
+            # {"name": "바이오헬스융합학부", "url": "https://biocoss.hongik.ac.kr/biocoss/0401.do"},
+
+            # 과학기술대학
+            # {"name": "과학기술대학", "url": "https://cst.hongik.ac.kr/cst/0501.do"},
+
+            # 건축도시대학_(건축공학/도시공학과 패스 다른 형식의 홈페이지)
+
+            # # 문과대학
+            {"name": "영여영문학과", "url": "https://english.hongik.ac.kr/english/0301.do"},
+            {"name": "독어독문학과", "url": "https://german.hongik.ac.kr/german/0301.do"},
+            {"name": "불어불문학과", "url": "https://france.hongik.ac.kr/france/0301.do"},
+            {"name": "국어국문학과", "url": "https://hkorean.hongik.ac.kr/hkorean/0301.do"},
+
+            # 사범대학
+            {"name": "수학교육과", "url": "https://math.hongik.ac.kr/math/0301.do"},
+            {"name": "국어교육과", "url": "https://koredu.hongik.ac.kr/koredu/0301.do"},
+            # {"name": "영어교육과", "url": "https://educomplex.hongik.ac.kr/educomplex/0401.do"},
+            {"name": "역사교육과", "url": "https://hisedu.hongik.ac.kr/hisedu/0301.do"},
+            {"name": "교육학과", "url": "https://edu.hongik.ac.kr/edu/0301.do"},
+
+            # 경제학부
+            {"name": "경제학부", "url": "https://economics.hongik.ac.kr/economics/0301.do"},
+
+            # # 공연예술학부
+            # {"name": "뮤지컬전공", "url": "https://musical.hongik.ac.kr/musical/0501.do"},
+            # {"name": "실용음악전공", "url": "https://music.hongik.ac.kr/music/0501.do"},
+
+            # 융합전공 
+            # 아래는 홈페이지 없는 학과들
+            # 공연예술전공/건축공간예술전공/사물인터넷공학/지능로봇공학/스마트도시데이터사이언스
+            # 데이터사이언스/의료헬스케어AI/헬스케어서비스전공
+            # {"name": "문화예술경영학과", "url": "https://hicam.hongik.ac.kr/hicam/0401.do"},
+            # {"name": "디자인엔지니어링전공", "url": "https://smpd.hongik.ac.kr/smpd/0401.do"},
+        ]
 
         options = Options()
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
 
+        department_courses = {}
+
         driver = webdriver.Chrome(options=options)
-        driver.get(url)
-
         try:
-            ul_grid = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "ul.grid"))
-            )
+            for board in boards:
+                name = board["name"]
+                url = board["url"]
 
-            boxes = ul_grid.find_elements(By.CSS_SELECTOR, "div.curriculum-title-box")
+                print(f"[과목 크롤링 시작] {name} ({url})")
 
-            courses = []
-            for idx, box in enumerate(boxes, start=1):
-                # 🔹 HTML 태그 X, 텍스트만 사용
-                text = box.text.strip()
+                driver.get(url)
 
-                courses.append({
-                    "index": idx,
-                    "text": text
-                })
+                try:
+                    ul_grid = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "ul.grid"))
+                    )
+                except TimeoutException:
+                    print(f"[경고] {name} 페이지에서 ul.grid를 찾지 못했습니다. (스킵)")
+                    department_courses[name] = {
+                        "chunk_meta": {"count": 0},
+                        "item": []
+                    }
+                    continue
 
-            return courses
+                boxes = ul_grid.find_elements(By.CSS_SELECTOR, "div.curriculum-title-box")
+
+                courses = []
+                for idx, box in enumerate(boxes, start=1):
+                    text = box.text.strip()  # HTML 태그 제거, 텍스트만
+
+                    courses.append({
+                        "index": idx,
+                        "text": text
+                    })
+
+                department_courses[name] = {
+                    "chunk_meta": {
+                        # ✅ item 개수만 넣기로 했으므로 이거 하나면 충분
+                        "count": len(courses)
+                    },
+                    "item": courses
+                }
+
+                print(f"[과목 크롤링 완료] {name} - {len(courses)}개 수집")
 
         finally:
             driver.quit()
 
+        # ✅ 바깥 key로 한 번 더 감싸지 말고 그대로 리턴
+        return department_courses
 
-
-    # ---------------- 4. 산업·데이터공학과 학과 공지사항 ---------------- #
+    # ---------------- 4. 전체 학과 공지사항 ---------------- #
 
     def crawl_ie_board(self):
         """
@@ -632,7 +762,6 @@ class HongikCrawler:
             print(f"[크롤링 완료] {name} ({base_url}) - {len(board_results)}건 수집")
 
         return results_by_board
-
 
 
     def _crawl_single_ie_board(self, base_url, six_months_ago):
@@ -836,27 +965,24 @@ class HongikCrawler:
         # 3. 산업·데이터공학과 개설과목
         print("3. 개설과목 크롤링...")
         courses_data = self.crawl_ie_courses()
-        all_results['ie_courses'] = courses_data
+        all_results["department_Courses"] = courses_data
         print(f"   {len(courses_data)}개 과목 크롤링 완료")
 
-        # 4. 산업·데이터공학과 학과 공지사항
-        print("4. 학과 공지사항 크롤링...")
-        ie_board_data = self.crawl_ie_board()
-        all_results["ie_board"] = ie_board_data
-        print(f"   {len(ie_board_data)}개 게시물 크롤링 완료")
+        # # 4. 산업·데이터공학과 학과 공지사항
+        # print("4. 학과 공지사항 크롤링...")
+        # ie_board_data = self.crawl_ie_board()
+        # all_results["ie_board"] = ie_board_data
+        # print(f"   {len(ie_board_data)}개 게시물 크롤링 완료")
 
         # 결과 저장
-        self.save_results(all_results, "courses_departNotice.json")
-        print("\n크롤링 완료! 결과가 'courses_departNotice.json'에 저장되었습니다.")
+        self.save_results(all_results, "depart_Courses+Notice.json")
+        print("\n크롤링 완료! 결과가 'depart_Courses+Notice.json'에 저장되었습니다.")
 
         return all_results
 
 
 if __name__ == "__main__":
     crawler = HongikCrawler()
-    courses = crawler.crawl_ie_courses()
-    print(len(courses))
-    print(courses[:3])
 
     # ⚠️ 중요한 보안 주의:
     #   실제 코드에는 학번/비밀번호를 하드코딩하지 말고
