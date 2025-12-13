@@ -47,7 +47,7 @@ df_courses['attachments']=''
 df_courses.drop(columns=['text'], inplace=True)
 
 
-#-----------------'department_Notice' -> 'df_courses'---------------
+#-----------------'department_Notice' -> 'df_notice'---------------
 notice_rows = []
 
 # 1. 모든 학과 공지사항 순회
@@ -87,7 +87,7 @@ cols = ['index'] + [c for c in df_notice.columns if c != 'index']
 df_notice = df_notice[cols]
 
 
-#-----------------'univ_Notice' -> 'df_courses'---------------
+#-----------------'univ_Notice' -> 'df_univ'---------------
 notice_rows = []
 target_list = []
 
@@ -126,8 +126,21 @@ df_univ['index'] = [f'univ_notice_{i+1}' for i in range(len(df_univ))]
 # 5. 컬럼 순서 정리 (ID를 맨 앞으로)
 cols = ['index'] + [c for c in df_univ.columns if c != 'index']
 df_univ = df_univ[cols]
-df_univ['department'] = '대학 전체'
 
+departments=[]
+for content in df_univ['content']:
+
+    split_data = content.split('\n')
+    
+    dept_result = f"대학전체_{split_data[1]}"
+        
+    departments.append(dept_result)
+
+
+# 3. department 컬럼에 할당
+df_univ['department'] = departments
+print(f"수집된 데이터 개수: {len(df_univ)}")
+display(df_univ.head())
 
 #---------------df merging--------------------
 df_json_to_csv = pd.concat([df_courses, df_notice, df_univ], axis=0)
