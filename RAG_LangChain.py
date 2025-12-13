@@ -77,7 +77,7 @@ def initialize_rag_agent(api_key_path: str, data_path: str, model_name: str = 'g
         history_messages_key='history'
     )
     
-  return runnable
+    return runnable
 
 
 ## 2. 챗봇 실행 함수
