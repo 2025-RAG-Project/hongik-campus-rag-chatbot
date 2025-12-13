@@ -29,26 +29,26 @@ def process_courses(data):
     if not rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
+    df_courses = pd.DataFrame(rows)
     
     # ID 생성
-    df['index'] = [f'course_{i+1}' for i in range(len(df))]
+    df_courses['index'] = [f'course_{i+1}' for i in range(len(df_courses))]
 
     # 텍스트 전처리 (제목, 날짜, 내용 분리)
-    split_data = df['text'].str.split('\n')
-    df['title'] = split_data.str[0]
-    df['date'] = split_data.str[1]
+    split_data = df_courses['text'].str.split('\n')
+    df_courses['title'] = split_data.str[0]
+    df_courses['date'] = split_data.str[1]
     
     # 내용은 나머지 줄을 다시 합쳐서 저장 (CSV 저장 시 리스트보다 문자열이 안전함)
-    df['content'] = split_data.str[2:].apply(lambda x: '\n'.join(x) if isinstance(x, list) else '')
+    df_courses['content'] = split_data.str[2:].apply(lambda x: '\n'.join(x) if isinstance(x, list) else '')
     
-    df['url'] = ''
-    df['attachments'] = ''
+    df_courses['url'] = ''
+    df_courses['attachments'] = ''
     
     # 불필요한 원본 텍스트 컬럼 삭제
-    df.drop(columns=['text'], inplace=True)
+    df_courses.drop(columns=['text'], inplace=True)
     
-    return df
+    return df_courses
 
 def process_dept_notices(data):
     """학과 공지사항(department_Notice) 데이터를 처리하여 DataFrame 반환"""
@@ -67,42 +67,68 @@ def process_dept_notices(data):
                     'content': item.get('content')
                 })
     
-    df = pd.DataFrame(rows)
+    df_notice = pd.DataFrame(rows)
     
-    if not df.empty:
-        df['index'] = [f'notice_{i+1}' for i in range(len(df))]
+    if not df_notice.empty:
+        df_notice['index'] = [f'notice_{i+1}' for i in range(len(df_notice))]
         
-    return df
+    return df_notice
 
 def process_univ_notices(data):
-    """학교 전체 공지사항(univ_Notice) 데이터를 처리하여 DataFrame 반환"""
-    rows = []
+    notice_rows = []
     target_list = []
 
-    # 'items' 키 찾기
-    for entry in data.get('univ_Notice', []):
-        if 'items' in entry:
-            target_list = entry['items']
-            break
-            
+    # 1. data['univ_Notice'] 리스트를 돌면서 'items' 키가 있는 딕셔너리 찾기
+    if 'univ_Notice' in data:
+        for entry in data['univ_Notice']:
+            if 'items' in entry:
+                target_list = entry['items']
+                break  # 찾았으면 반복문 종료
+
+    # 2. 찾은 item 리스트 순회
     if target_list:
         for item in target_list:
-            rows.append({
-                'index': '', # 나중에 일괄 부여
-                'department': '대학 전체',
+            
+            # attachments (리스트 -> 문자열 변환)
+            att_list = item.get('attachments', [])
+            if att_list:
+                attachments_str = ', '.join([str(x) for x in att_list])
+            else:
+                attachments_str = ''
+
+            row = {
                 'date': item.get('date'),
                 'title': item.get('title'),
                 'url': item.get('url'),
-                'attachments': parse_attachments(item),
+                'attachments': attachments_str,
                 'content': item.get('content')
-            })
+            }
+            notice_rows.append(row)
 
-    df = pd.DataFrame(rows)
+    # 3. 데이터프레임 생성
+    df_univ = pd.DataFrame(notice_rows)
     
-    if not df.empty:
-        df['index'] = [f'univ_notice_{i+1}' for i in range(len(df))]
-        
-    return df
+    # 데이터가 비어있지 않다면 후처리 진행
+    if not df_univ.empty:
+        # 4. 인덱스 ID 추가 (univ_notice_1, univ_notice_2 ...)
+        df_univ['index'] = [f'univ_notice_{i+1}' for i in range(len(df_univ))]
+
+        # 5. 컬럼 순서 정리 (ID를 맨 앞으로)
+        cols = ['index'] + [c for c in df_univ.columns if c != 'index']
+        df_univ = df_univ[cols]
+
+        # 6. department 컬럼 생성 (요청하신 로직 그대로)
+        departments = []
+        for content in df_univ['content']:
+            split_data = content.split('\n')
+            # 두 번째 줄(인덱스 1)을 이용하여 부서명 생성
+            dept_result = f"대학전체_{split_data[1]}" 
+            departments.append(dept_result)
+
+        # 7. department 컬럼 할당
+        df_univ['department'] = departments
+
+    return df_univ
 
 def main():
     # 1. 파일 경로 설정 및 로드
