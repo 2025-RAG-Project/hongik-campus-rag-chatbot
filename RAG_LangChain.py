@@ -1,122 +1,108 @@
-import pandas as pd
-import uuid
-import time
-from langchain_openai import ChatOpenAI
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.tools import tool
-from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
+# main.py
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
+# from example import fewshot_examples
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
+import pickle
+from langchain.storage import LocalFileStore
+from langchain.storage import EncoderBackedStore
+from langchain.retrievers import ParentDocumentRetriever
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
-from typing import Dict, Any
+
+load_dotenv()
+
+#LLM cache는 Vecot DB와 다른 파일을 사용해야 함.
+database_path = r"C:\Users\82103\Desktop\수업 및 과제\복수전공-산업데이터공학과\파이썬데이터분석\RAG_LangChain_Project\db_folder_전달\db_folder_전달\docstore\llm_cache.db"
+set_llm_cache(SQLiteCache(database_path=database_path))
+#persist_directory(CHROMA_DIR)=.sqlite3 파일이 있는 폴더
+CHROMA_DIR=r"C:\Users\82103\Desktop\수업 및 과제\복수전공-산업데이터공학과\파이썬데이터분석\RAG_LangChain_Project\db_folder_전달\db_folder_전달\chroma_db\chroma_db"
+DOCSTORE_DIR = r"C:\Users\82103\Desktop\수업 및 과제\복수전공-산업데이터공학과\파이썬데이터분석\RAG_LangChain_Project\db_folder_전달\db_folder_전달\docstore"
 
 
-## 1. 전역 설정 및 초기화 함수
-# 세션 기록 저장을 위한 전역 저장소 (실제 앱에서는 DB나 Redis 사용 권장)
-STORE: Dict[str, ChatMessageHistory] = {}
+def load_vector_store():
+    # 1. 임베딩 설정 (구축할 때와 똑같은 모델이어야 함)
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
-def get_session_history(session_id: str) -> ChatMessageHistory:
-    """세션 ID에 해당하는 ChatMessageHistory 객체를 반환합니다."""
-    if session_id not in STORE:
-        STORE[session_id] = ChatMessageHistory()
-    return STORE[session_id]
-
-def initialize_rag_agent(api_key_path: str, data_path: str, model_name: str = 'gpt-4o-mini') -> RunnableWithMessageHistory:
-        
-    # 0. .env 파일 읽어오기
-    load_dotenv(api_key_path)
-
-    # 1. LLM 정의 및 DataFrame 호출
-    llm = ChatOpenAI(model=model_name, temperature=0)
-    df = pd.read_csv(data_path, encoding='utf-8')
-
-    
-    # 2. DataFrame RAG Tool 생성
-    # LangChain Experimental 모듈 사용
-    df_agent_executor = create_pandas_dataframe_agent(
-        llm,
-        df,
-        verbose=False,
-        allow_dangerous_code=True
+    # 2. Vector Store (검색용 DB) 불러오기
+    vectorstore = Chroma(
+        collection_name="hongik_data",
+        embedding_function=embeddings,
+        persist_directory=CHROMA_DIR
     )
 
-    # Tool 정의 (Agent가 사용할 수 있도록 래핑)
-    @tool
-    def df_query_tool(query: str) -> str:
-        """DataFrame에 대한 질문을 통해 데이터를 검색하고 계산합니다. 공지사항, 모집 정보 등의 데이터를 분석할 때 사용합니다."""
-        result = df_agent_executor.invoke({"input": query})
-        # 결과가 딕셔너리 형태일 경우 'output' 키를 반환
-        if isinstance(result, dict):
-            return str(result.get("output", result))
-        return str(result)
+    # 3. Doc Store (원본 저장소) 불러오기
+    #    구축할 때 사용한 pickle 방식 그대로 다시 설정해줘야 합니다.
+    fs = LocalFileStore(DOCSTORE_DIR)
+    docstore = EncoderBackedStore(
+        store=fs,
+        key_encoder=lambda x: x,
+        value_serializer=pickle.dumps,
+        value_deserializer=pickle.loads
+    )
 
-    tools = [df_query_tool]
+    # 4. Splitter 설정 (구축 때와 동일하게)
+    #    PDR 객체를 다시 만들 때 필요합니다.
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=50,
+        separators=["\n\n", "\n", " ", ""]
+    )
 
-    # 3. Prompt 및 Agent Executor 정의
+    # 5. 두 저장소를 연결하여 Retriever 재구성
+    #chroma_db -> 작은 텍스트 조각
+    #docstore -> 읽고 싶은 원본 전체 텍스트
+    #-> 텍스트 조각으로 검색 -> 원본 전체 텍스트에서 결과 불러오기
+    retriever = ParentDocumentRetriever(
+        vectorstore=vectorstore,
+        docstore=docstore,
+        child_splitter=child_splitter,
+        parent_splitter=None
+    )
+
+    return retriever
+
+
+def create_chain(retriever):  # [수정됨] 인자 이름 변경
+    # [수정됨] 모델 이름 확인 (gpt-5-mini -> gpt-4o-mini)
+    llm = ChatOpenAI(model='gpt-5-mini', streaming=True)
+
+    output_parser = StrOutputParser()
+
+    # [수정됨] ParentDocumentRetriever는 이미 리트리버입니다. .as_retriever() 삭제!
+    # retriever = vector_store.as_retriever()  <-- 이 줄 삭제
+
     prompt = ChatPromptTemplate.from_messages([
-        ('system', '당신은 친절한 챗봇입니다. 질문에 답할 때, 반드시 제공된 도구(DataFrame)를 활용하여 데이터를 분석하세요.'),
-        MessagesPlaceholder(variable_name='history'),
-        ('human', "{input}"),
-        MessagesPlaceholder(variable_name='agent_scratchpad')
+        ('system', '당신은 홍익대학교 학생들을 위한 친절한 비서 입니다. 사용자의 질문을 바탕으로 아래 참고 문서를 참고해서 답변합니다.'),
+        MessagesPlaceholder(variable_name="history"),
+        ('human', '질문 : {question}\n\n참고 문서\n{context}'),
     ])
 
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=True,
-        handle_parsing_errors=True
-    )
+    chain = prompt | llm | output_parser
 
-    # 4. 최종 RunnableWithMessageHistory 정의 (메모리 적용)
-    runnable = RunnableWithMessageHistory(
-        agent_executor,
-        get_session_history,
-        input_messages_key='input',
-        history_messages_key='history'
-    )
-    
-    return runnable
+    # retriever를 그대로 반환
+    return chain, retriever
 
 
-## 2. 챗봇 실행 함수
-def run_chatbot_cli(runnable: RunnableWithMessageHistory):
-
-    session_id = str(uuid.uuid4())
-    config = {"configurable": {"session_id": session_id}}
-
-    print("--- 대화 시작 ---")
-    print("종료하려면 'quit', 'exit', '종료' 중 하나를 입력하세요.\n")
-
-    while True:
-        user_input = input("당신의 메시지를 입력하세요: ")
-
-        # 종료 조건
-        if user_input.lower() in ['quit', 'exit', '종료']:
-            print("챗봇을 종료합니다.")
-            break
-
-        # 사용자 입력 처리
-        if user_input.strip():
-            print("\n--- 응답 ---")
-            # Runnable 실행
-            response = runnable.invoke({"input": user_input}, config=config)
-            print(response["output"])
-            print()
+def get_answer(chain, retriever, query, history):
+    context_docs = retriever.invoke(query)
+    llm_answer = chain.invoke({
+        "question": query,
+        "context": '\n\n'.join([doc.page_content for doc in context_docs]),
+        'history': history
+    })
+    return llm_answer
 
 
-## 3. 메인 실행 블록
-if __name__ == "__main__":
-    # 사용자 환경에 맞는 파일 경로를 정의합니다.
-    API_KEY_FILE = r'C:\Langchain_Streanlit_Project\OPENAI_API_KEY.env'
-    DATA_FILE = r'C:\Langchain_Streanlit_Project\df_academic_board_master.csv'
-
-    # 1. RAG 에이전트 초기화
-    rag_runnable = initialize_rag_agent(
-        api_key_path=API_KEY_FILE,
-        data_path=DATA_FILE
-    )
-    
-    # 2. 챗봇 실행
-    run_chatbot_cli(rag_runnable)
+def get_answer_stream(chain, retriever, query, history):
+  context_docs = retriever.invoke(query)
+  for chunk in chain.stream({
+    "question" : query,
+    "context" : '\n\n'.join([doc.page_content for doc in context_docs]),
+    'history' : history
+    }):
+    yield chunk
